@@ -26,6 +26,7 @@ import User from "./User";
 import MessagePanel from "./MessagePanel";
 // Импортируем Planet
 import Planet from "./Planet.js";
+import Message from "./Message.js";
 import * as PIXI from 'pixi.js';
 
 export default {
@@ -39,7 +40,8 @@ export default {
       app: null,
       planets: new Map(),
       centerX: 0,
-      centerY: 0
+      centerY: 0, 
+      activeMessages: new Map(),
     };
   },
   methods: {
@@ -82,16 +84,53 @@ export default {
       this.planets.set(data.userID, planet);
     },
 
+    onMessageUpdate(event) {
+      console.log('MessageUpdate!')
+      const { messages } = event.detail
+      messages.forEach(({ id, from, to, content, fromRadius, toRadius, startAngle, targetAngle, startTime, duration, progress }) => {
+        let message = this.activeMessages.get(id);
+        console.log(content)
+        if (!message) {
+          // Первое появление — создаем письмо
+          const fromPlanet = this.planets.get(from);
+          const toPlanet = this.planets.get(to);
+          
+          if (!fromPlanet || !toPlanet) {
+            console.warn('⚠️ Планеты не найдены для письма', id);
+            return;
+          }
+          console.log(targetAngle)
+          message = new Message({ id,fromRadius,toRadius,fromAngle: startAngle,toAngle: targetAngle,startTime,duration}, this.centerX, this.centerY, this.app);
+          this.activeMessages.set(id, message);
+        } else {
+          // Обновляем позицию существующего письма
+          message.updatePosition(progress);
+        }
+      });
+      // console.log(messages)
+    },
+
+    onMessageDelivered(event) {
+      const { id } = event.detail;
+      console.log('✅ Письмо доставлено:', id);
+      
+      const message = this.activeMessages.get(id);
+      if (message) {
+        message.destroy();
+        this.activeMessages.delete(id);
+      }
+    },
+
     onMessage(content) {
       if (this.selectedUser) {
         socket.emit("private message", {
           content,
           to: this.selectedUser.userID,
         });
-        this.selectedUser.messages.push({
-          content,
-          fromSelf: true,
-        });
+        // this.selectedUser.messages.push({
+        //   content,
+        //   fromSelf: true,
+        // });
       }
     },
     onSelectUser(user) {
@@ -197,6 +236,9 @@ export default {
     window.removeEventListener('universe:update', this.onUniverseUpdate);
     window.removeEventListener('planet:added', this.onPlanetAdded);
     window.removeEventListener('planet:removed', this.onPlanetRemoved);
+
+    window.removeEventListener('messages:update', this.onMessageUpdate);
+    window.removeEventListener('message:delivered', this.onMessageDelivered);
   },
   async mounted() {
     // Инициализация Pixi
@@ -212,6 +254,9 @@ export default {
     window.addEventListener('universe:update', this.onUniverseUpdate);
     window.addEventListener('planet:added', this.onPlanetAdded);
     window.addEventListener('planet:removed', this.onPlanetRemoved);
+
+    window.addEventListener('messages:update', this.onMessageUpdate);
+    window.addEventListener('message:delivered', this.onMessageDelivered);
 
     // Для отладки: добавим Землю в центр
     const earth = new PIXI.Graphics();

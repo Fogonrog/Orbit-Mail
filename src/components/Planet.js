@@ -46,6 +46,7 @@ export default class Planet {
   }
   
   setAngle(angle) {
+    // console.log(this.username, angle)
     this.container.x = this.centerX + Math.cos(angle) * this.radius;
     this.container.y = this.centerY + Math.sin(angle) * this.radius;
   }

@@ -24,5 +24,17 @@ socket.on('planet:removed', (userID) => {
   window.dispatchEvent(new CustomEvent('planet:removed', { detail: { userID } }));
 });
 
+// ===== ПИСЬМА =====
+// socket.on('message:sent', (data) => {
+//   window.dispatchEvent(new CustomEvent('message:sent', { detail: data }));
+// });
+
+socket.on('messages:update', (data) => {
+  window.dispatchEvent(new CustomEvent('messages:update', { detail: data }));
+});
+
+socket.on('message:delivered', (data) => {
+  window.dispatchEvent(new CustomEvent('message:delivered', { detail: data }));
+});
 
 export default socket;

@@ -22,8 +22,12 @@ const { RedisMessageStore } = require("./messageStore");
 const messageStore = new RedisMessageStore(redisClient);
 
 const { RedisPlanetStore } = require("./planetStore");
+// const { from } = require("core-js/core/array");
 const planetStore = new RedisPlanetStore(redisClient);
 
+const activeMessages = new Map(); // id -> message
+// Функция для генерации ID сообщений
+const generateMessageId = () => crypto.randomBytes(8).toString("hex");
 
 // Константа для ключа вселенной
 const UNIVERSE_KEY = "universe:start";
@@ -144,13 +148,40 @@ io.on("connection", async (socket) => {
 
   // forward the private message to the right recipient (and to other tabs of the sender)
   socket.on("private message", ({ content, to }) => {
+    const messageId = generateMessageId();
+    const now = Date.now();
+    const duration = 5000; // 5 секунд полета
+    
     const message = {
-      content,
+      id: messageId,
       from: socket.userID,
       to,
+      content,
+      startTime: now,
+      duration: duration
     };
-    socket.to(to).to(socket.userID).emit("private message", message);
-    messageStore.saveMessage(message);
+    
+    // Сохраняем в активные сообщения
+    activeMessages.set(messageId, message);
+    
+    // // Сообщаем всем о новом письме
+    // io.emit("message:sent", {
+    //   id: messageId,
+    //   from: socket.userID,
+    //   to,
+    //   startTime: now,
+    //   duration: duration
+    // });
+
+    // socket.to(to).to(socket.userID).emit("private message", { content, from: socket.userID, to });
+    // Сохраняем в историю (для чата)
+    // messageStore.saveMessage({
+    //   content,
+    //   from: socket.userID,
+    //   to
+    // });
+
+    console.log(`✉️ Письмо от ${socket.username} к ${to} (${messageId})`);
   });
 
   // notify users upon disconnection
@@ -184,40 +215,142 @@ setInterval(async () => {
   try {
     // const startTime = await redisClient.get(UNIVERSE_KEY);
     const planets = await planetStore.findAllPlanets();
-
-    // ВРЕМЕННО: посмотрим что в planets
-    // console.log('📦 Планеты из Redis:', JSON.stringify(planets, null, 2));
-
     const currentTime = Date.now();
-    
-    const angles = planets.map(p => {
-      // // Проверим каждое значение
-      // console.log('🔍 Данные планеты:', {
-      //   startAngle: p.startAngle,
-      //   orbitSpeed: p.orbitSpeed,
-      //   createdAt: p.createdAt,
-      //   currentTime
-      // });
+
+    // const messagesToRemove = [];
+    // const messagesData = [];
+    // activeMessages.forEach((msg, id) => {
+    //   const progress = (currentTime - msg.startTime) / msg.duration;
       
+    //   if (progress >= 1) {
+    //     // Письмо доставлено
+    //     messagesToRemove.push(id);
+    //     io.emit("message:delivered", { 
+    //       id, 
+    //       to: msg.to,
+    //       from: msg.from 
+    //     });
+    //   } else {
+    //     // Письмо еще в пути
+    //     messagesData.push({
+    //       id: msg.id,
+    //       from: msg.from,
+    //       to: msg.to,
+    //       progress: progress
+    //     });
+    //   }
+    // });
+    
+    // // Удаляем доставленные письма
+    // messagesToRemove.forEach(id => activeMessages.delete(id));
+    
+    // // Рассылаем позиции (если есть)
+    // if (messagesData.length > 0) {
+    //   io.emit("messages:update", { messages: messagesData });
+    // }
+
+    const angles = planets.map(p => {
       const angle = (p.startAngle + p.orbitSpeed * (currentTime - p.createdAt) / 1000) % (Math.PI * 2);
       return {
         userID: p.userID,
         angle
       };
-      // userID: p.userID,
-      // angle: (p.startAngle + p.orbitSpeed * (currentTime - p.createdAt) / 1000) % (Math.PI * 2)
     });
-
-    // console.log('📐 Рассчитанные углы:', angles);
 
     io.emit("universe:update", { 
       time: currentTime,
       angles 
     });
+
+    const messagesToRemove = [];
+    const messagesData = [];
+
+    activeMessages.forEach((msg, id) => {
+      const progress = (currentTime - msg.startTime) / msg.duration;
+      
+      if (progress >= 1) {
+        messagesToRemove.push({
+          id,
+          from: msg.from,
+          to: msg.to,
+          content: msg.content
+        });
+      } else {
+        // Находим углы планет отправителя и получателя
+        const fromPlanet = planets.find(p => p.userID === msg.from);
+        const toPlanet = planets.find(p => p.userID === msg.to);
+        const startAngle = angles.find(a => a.userID === msg.from).angle;
+        const finishAngle = angles.find(a => a.userID === msg.to).angle;
+
+        let futureAngle = finishAngle + toPlanet.orbitSpeed * msg.duration / 1000;
+        // console.log(angle2, angularSpeed2, 60, animationDuration);
+
+        // console.log(futureAngle);
+        if (futureAngle > startAngle) {
+          futureAngle += 2 * Math.PI;
+        }
+
+        let diff = Math.abs(futureAngle - startAngle);
+        if (diff < 2 * Math.PI) {
+          futureAngle += 2 * Math.PI;
+        }
+
+        // console.log(finishAngle, toPlanet.orbitSpeed, 60, msg.duration)
+        if (fromPlanet && toPlanet && startAngle && finishAngle) {
+          messagesData.push({
+            id: msg.id,
+            from: msg.from,
+            to: msg.to,
+            content: msg.content,
+            fromRadius: fromPlanet.orbitRadius,
+            toRadius: toPlanet.orbitRadius,
+            startAngle: startAngle,
+            targetAngle: futureAngle,
+            startTime: currentTime,
+            duration: msg.duration,
+            progress: progress,
+            // Добавляем ВСЁ что нужно для отрисовки
+          });
+        }
+      }
+    });
+
+    // Удаляем доставленные письма
+    messagesToRemove.forEach(({ id, from, to, content }) => {
+      activeMessages.delete(id);
+
+      // Отправляем в чат ПОЛУЧАТЕЛЮ
+      io.to(to).to(from).emit("private message", { 
+        content, 
+        from, 
+        to 
+      });
+      
+      // socket.to(to).to(socket.userID).emit("private message", { content, from: socket.userID, to });
+      // Отправляем в чат ОТПРАВИТЕЛЮ (для его второй вкладки)
+      // io.to(from).emit("private message", { 
+      //   content, 
+      //   from, 
+      //   to 
+      // });
+
+      messageStore.saveMessage({
+        content,
+        from,
+        to
+      });
+
+      io.emit("message:delivered", { id });
+    });
+
+    if (messagesData.length > 0) {
+      io.emit("messages:update", { messages: messagesData });
+    }
+
   } catch (err) {
     // console.error("❌ Ошибка рассылки углов:", err);
   }
-}, 50); // 100ms = 10 раз в секунду
+}, 50);
 
 
 setupWorker(io);
