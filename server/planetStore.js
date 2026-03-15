@@ -15,11 +15,11 @@ class InMemoryPlanetStore extends PlanetStore {
   }
 
   savePlanet(id, planet) {
-    this.sessions.set(id, planet);
+    this.planets.set(id, planet);
   }
 
   findAllPlanets() {
-    return [...this.sessions.values()];
+    return [...this.planets.values()];
   }
 }
 

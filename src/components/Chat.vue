@@ -56,7 +56,6 @@ export default {
       const { angles } = event.detail;
       // Обновляем позиции планет
       angles.forEach(({ userID, angle }) => {
-        // console.log(angle)
         const planet = this.planets.get(userID);
         if (planet) planet.setAngle(angle);
       });
@@ -85,7 +84,6 @@ export default {
     },
 
     onMessageUpdate(event) {
-      console.log('MessageUpdate!')
       const { messages } = event.detail
       messages.forEach(({ id, from, to, content, fromRadius, toRadius, startAngle, targetAngle, startTime, duration, progress }) => {
         let message = this.activeMessages.get(id);
@@ -100,14 +98,13 @@ export default {
             return;
           }
           console.log(targetAngle)
-          message = new Message({ id,fromRadius,toRadius,fromAngle: startAngle,toAngle: targetAngle,startTime,duration}, this.centerX, this.centerY, this.app);
+          message = new Message({ id,fromRadius,toRadius,startAngle,targetAngle,startTime,duration}, this.centerX, this.centerY, this.app);
           this.activeMessages.set(id, message);
         } else {
           // Обновляем позицию существующего письма
           message.updatePosition(progress);
         }
       });
-      // console.log(messages)
     },
 
     onMessageDelivered(event) {

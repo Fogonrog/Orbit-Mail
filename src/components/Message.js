@@ -5,8 +5,8 @@ export default class Message {
     this.id = data.id;
     this.fromRadius = data.fromRadius;
     this.toRadius = data.toRadius;
-    this.startAngle = data.fromAngle;
-    this.targetAngle = data.toAngle;
+    this.startAngle = data.startAngle;
+    this.targetAngle = data.targetAngle;
     this.startTime = data.startTime;
     this.duration = data.duration;
     this.centerX = centerX;

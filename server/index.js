@@ -22,7 +22,6 @@ const { RedisMessageStore } = require("./messageStore");
 const messageStore = new RedisMessageStore(redisClient);
 
 const { RedisPlanetStore } = require("./planetStore");
-// const { from } = require("core-js/core/array");
 const planetStore = new RedisPlanetStore(redisClient);
 
 const activeMessages = new Map(); // id -> message
@@ -163,23 +162,6 @@ io.on("connection", async (socket) => {
     
     // Сохраняем в активные сообщения
     activeMessages.set(messageId, message);
-    
-    // // Сообщаем всем о новом письме
-    // io.emit("message:sent", {
-    //   id: messageId,
-    //   from: socket.userID,
-    //   to,
-    //   startTime: now,
-    //   duration: duration
-    // });
-
-    // socket.to(to).to(socket.userID).emit("private message", { content, from: socket.userID, to });
-    // Сохраняем в историю (для чата)
-    // messageStore.saveMessage({
-    //   content,
-    //   from: socket.userID,
-    //   to
-    // });
 
     console.log(`✉️ Письмо от ${socket.username} к ${to} (${messageId})`);
   });
@@ -188,7 +170,7 @@ io.on("connection", async (socket) => {
   socket.on("disconnect", async () => {
     console.log(`🔴 Отключился: ${socket.username}`);
 
-     // Ждем 5 секунд перед удалением
+    // Ждем 5 секунд перед удалением
     setTimeout(async () => {
       const matchingSockets = await io.in(socket.userID).allSockets();
       const isDisconnected = matchingSockets.size === 0;
@@ -216,38 +198,6 @@ setInterval(async () => {
     // const startTime = await redisClient.get(UNIVERSE_KEY);
     const planets = await planetStore.findAllPlanets();
     const currentTime = Date.now();
-
-    // const messagesToRemove = [];
-    // const messagesData = [];
-    // activeMessages.forEach((msg, id) => {
-    //   const progress = (currentTime - msg.startTime) / msg.duration;
-      
-    //   if (progress >= 1) {
-    //     // Письмо доставлено
-    //     messagesToRemove.push(id);
-    //     io.emit("message:delivered", { 
-    //       id, 
-    //       to: msg.to,
-    //       from: msg.from 
-    //     });
-    //   } else {
-    //     // Письмо еще в пути
-    //     messagesData.push({
-    //       id: msg.id,
-    //       from: msg.from,
-    //       to: msg.to,
-    //       progress: progress
-    //     });
-    //   }
-    // });
-    
-    // // Удаляем доставленные письма
-    // messagesToRemove.forEach(id => activeMessages.delete(id));
-    
-    // // Рассылаем позиции (если есть)
-    // if (messagesData.length > 0) {
-    //   io.emit("messages:update", { messages: messagesData });
-    // }
 
     const angles = planets.map(p => {
       const angle = (p.startAngle + p.orbitSpeed * (currentTime - p.createdAt) / 1000) % (Math.PI * 2);
@@ -283,9 +233,7 @@ setInterval(async () => {
         const finishAngle = angles.find(a => a.userID === msg.to).angle;
 
         let futureAngle = finishAngle + toPlanet.orbitSpeed * msg.duration / 1000;
-        // console.log(angle2, angularSpeed2, 60, animationDuration);
 
-        // console.log(futureAngle);
         if (futureAngle > startAngle) {
           futureAngle += 2 * Math.PI;
         }
@@ -295,7 +243,6 @@ setInterval(async () => {
           futureAngle += 2 * Math.PI;
         }
 
-        // console.log(finishAngle, toPlanet.orbitSpeed, 60, msg.duration)
         if (fromPlanet && toPlanet && startAngle && finishAngle) {
           messagesData.push({
             id: msg.id,
@@ -326,14 +273,7 @@ setInterval(async () => {
         to 
       });
       
-      // socket.to(to).to(socket.userID).emit("private message", { content, from: socket.userID, to });
-      // Отправляем в чат ОТПРАВИТЕЛЮ (для его второй вкладки)
-      // io.to(from).emit("private message", { 
-      //   content, 
-      //   from, 
-      //   to 
-      // });
-
+      // Сохраняем в историю (для чата)
       messageStore.saveMessage({
         content,
         from,
@@ -348,7 +288,7 @@ setInterval(async () => {
     }
 
   } catch (err) {
-    // console.error("❌ Ошибка рассылки углов:", err);
+    console.error("❌ Ошибка рассылки углов:", err);
   }
 }, 50);
 

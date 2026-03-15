@@ -8,6 +8,7 @@ const socket = io(URL, { autoConnect: false });
 // });
 
 // Преобразуем socket события в обычные DOM события
+// ===== ПЛАНЕТЫ =====
 socket.on('universe:init', (data) => {
   window.dispatchEvent(new CustomEvent('universe:init', { detail: data }));
 });
@@ -25,10 +26,6 @@ socket.on('planet:removed', (userID) => {
 });
 
 // ===== ПИСЬМА =====
-// socket.on('message:sent', (data) => {
-//   window.dispatchEvent(new CustomEvent('message:sent', { detail: data }));
-// });
-
 socket.on('messages:update', (data) => {
   window.dispatchEvent(new CustomEvent('messages:update', { detail: data }));
 });
