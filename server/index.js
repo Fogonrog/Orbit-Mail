@@ -28,6 +28,8 @@ const activeMessages = new Map(); // id -> message
 // Функция для генерации ID сообщений
 const generateMessageId = () => crypto.randomBytes(8).toString("hex");
 
+const ships = new Map();
+
 // Константа для ключа вселенной
 const UNIVERSE_KEY = "universe:start";
 // Инициализация при запуске (без await на верхнем уровне)
@@ -137,12 +139,50 @@ io.on("connection", async (socket) => {
     planets: allPlanets
   });
 
+  // Создаем ракету для пользователя
+  const ship = {
+    userID: socket.userID,
+    x: planet.orbitRadius, // начальная позиция (на орбите)
+    y: 0,
+    speed: 0,
+    planetRadius: planet.orbitRadius,
+    planetAngle: 0, // меняется только если ракета находится на планете == не в полёте == не меняются поля Х,Y
+    planetId: socket.userID, // к какой планете привязана (своя)
+    isDocked: true,
+    isFlying: false
+  };
+
+  ships.set(socket.userID, ship);
+
   // notify existing users
   socket.broadcast.emit("user connected", {
     userID: socket.userID,
     username: socket.username,
     connected: true,
     messages: [],
+  });
+
+  socket.on("ship:takeoff", ({ lastX, lastY }) => {
+    const ship = ships.get(socket.userID);
+    if (ship) {
+      ship.isDocked = false;
+      ship.x = lastX
+      ship.y = lastY
+      ship.targetX = undefined;
+      ship.targetY = undefined;
+      ship.isFlying = false;
+      // Корабль остается на месте, но теперь может лететь
+    }
+  });
+
+  socket.on("ship:fly", ({ x, y }) => {
+    const ship = ships.get(socket.userID);
+    if (ship && !ship.isDocked) {
+      ship.targetX = x;
+      ship.targetY = y;
+      ship.isFlying = true;
+      ship.speed = 10; // пикселей за тик
+    }
   });
 
   // forward the private message to the right recipient (and to other tabs of the sender)
@@ -187,6 +227,8 @@ io.on("connection", async (socket) => {
         await planetStore.removePlanet(socket.userID);
         io.emit("planet:removed", socket.userID);
         console.log(`🗑️ Планета удалена для ${socket.username}`);
+        io.emit("ship:removed", socket.userID);
+        console.log(`🗑️ Ракета удалена для ${socket.username}`);
       }
     }, 5000); // 5 секунд
   });
@@ -207,9 +249,57 @@ setInterval(async () => {
       };
     });
 
+    // Собираем данные о ракетах
+    const shipsData = [];
+    ships.forEach((ship, userID) => {
+      if (ship.isDocked) {
+        // Если припаркована — позиция = позиция планеты
+        const planetAngle = angles.find(a => a.userID === userID).angle
+        if (planetAngle) {
+          ship.planetAngle = planetAngle;
+        }
+      } else if (ship.isFlying) {
+        // Логика движения к цели
+        const dx = ship.targetX - ship.x;
+        const dy = ship.targetY - ship.y;
+        const distance = Math.hypot(dx, dy);
+        
+        // if (distance < 1) {
+        //   // Долетели
+        //   ship.isFlying = false;
+        //   ship.isDocked = false; // свободный полет
+        // } else {
+        //   // Двигаемся
+        //   ship.x += (dx / distance) * ship.speed;
+        //   ship.y += (dy / distance) * ship.speed;
+        // }
+        if (distance < ship.speed) {
+          // Если до цели меньше шага — просто ставим точно в цель
+          ship.x = ship.targetX;
+          ship.y = ship.targetY;
+          ship.isFlying = false;
+        } else {
+          ship.x += (dx / distance) * ship.speed;
+          ship.y += (dy / distance) * ship.speed;
+        }
+      }
+      
+      shipsData.push({
+        userID: ship.userID,
+        x: ship.x,
+        y: ship.y,
+        planetRadius: ship.planetRadius,
+        planetAngle: ship.planetAngle, 
+        isDocked: ship.isDocked,
+        isFlying: ship.isFlying
+      });
+    });
+    
+
     io.emit("universe:update", { 
       time: currentTime,
-      angles 
+      angles,
+      ships: shipsData
     });
 
     const messagesToRemove = [];

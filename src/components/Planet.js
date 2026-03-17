@@ -33,6 +33,17 @@ export default class Planet {
     
     // Начальная позиция
     this.setAngle(this.startAngle);
+
+    // После создания container
+    this.container.eventMode = 'static';
+    this.container.cursor = 'pointer';
+    this.container.on('click', () => {
+      console.log('Клик по планете', this.username);
+      // Здесь можно вызвать callback, переданный из Chat.vue
+      if (this.onClick) {
+        this.onClick(this.username);
+      }
+    });
   }
   
   draw() {

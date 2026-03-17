@@ -8,6 +8,8 @@
         :selected="selectedUser === user"
         @select="onSelectUser(user)"
       />
+      <!-- В шаблон, например после списка пользователей -->
+      <div class="takeoff-button" @click="onShipTakeoff">🚀 Взлететь</div>
     </div>
     <!-- Добавляем контейнер для Pixi -->
     <div ref="pixiContainer" class="pixi-container"></div>
@@ -27,6 +29,7 @@ import MessagePanel from "./MessagePanel";
 // Импортируем Planet
 import Planet from "./Planet.js";
 import Message from "./Message.js";
+import Ship from "./Ship.js";
 import * as PIXI from 'pixi.js';
 
 export default {
@@ -42,6 +45,7 @@ export default {
       centerX: 0,
       centerY: 0, 
       activeMessages: new Map(),
+      ships: new Map()
     };
   },
   methods: {
@@ -53,12 +57,67 @@ export default {
     },
     
     onUniverseUpdate(event) {
-      const { angles } = event.detail;
+      const { angles, ships } = event.detail;
       // Обновляем позиции планет
       angles.forEach(({ userID, angle }) => {
         const planet = this.planets.get(userID);
         if (planet) planet.setAngle(angle);
       });
+      // Обновляем позиции ракет
+      ships.forEach(shipData => {
+        let ship = this.ships.get(shipData.userID);
+
+        if (!ship) {
+          const dockedplaneted = this.planets.get(shipData.userID)
+          if (!dockedplaneted) {
+            console.warn('Планета не найдена для корабля', shipData.userID);
+            return;
+          }
+          ship = new Ship(shipData.userID, this.centerX, this.centerY, dockedplaneted.radius, this.app);
+          this.ships.set(shipData.userID, ship);
+        }
+        
+        if (shipData.isDocked) {
+          ship.setAngle(shipData.planetAngle)
+        } else {
+          // Запоминаем предыдущую позицию для расчета направления
+          const prevX = ship.container.x;
+          const prevY = ship.container.y;
+          
+          ship.setPosition(shipData.x, shipData.y);
+          
+          // Устанавливаем направление (если корабль двигался)
+          if (shipData.isFlying && (prevX !== shipData.x || prevY !== shipData.y)) {
+            ship.setDirection(prevX, prevY, shipData.x, shipData.y);
+          }
+        }
+
+        ship.setDocked(shipData.isDocked);
+      });
+    },
+
+    onShipTakeoff() {
+      const myShip = this.ships.get(socket.userID);
+      if (myShip) {
+        socket.emit("ship:takeoff", { 
+          lastX: myShip.container.x, 
+          lastY: myShip.container.y 
+        });
+      }
+    },
+    
+    onShipFly(x, y) {
+      // Летим в точку
+      socket.emit("ship:fly", { x, y });
+    },
+
+    onShipRemoved(event) {
+      const { userID } = event.detail;
+      const ship = this.ships.get(userID);
+      if (ship) {
+        this.app.stage.removeChild(ship.container);
+        this.ships.delete(userID);
+      }
     },
     
     onPlanetAdded(event) {
@@ -80,6 +139,13 @@ export default {
     addPlanet(data) {
       if (this.planets.has(data.userID)) return;
       const planet = new Planet(data, this.centerX, this.centerY, this.app);
+
+      planet.onClick = (data) => {
+        console.log('Обработчик клика по планете', data);
+        // Например, полететь к этой планете
+        this.onShipFly(planet.container.x, planet.container.y);
+      };
+      
       this.planets.set(data.userID, planet);
     },
 
@@ -236,8 +302,25 @@ export default {
 
     window.removeEventListener('messages:update', this.onMessageUpdate);
     window.removeEventListener('message:delivered', this.onMessageDelivered);
+
+    window.removeEventListener('ship:removed', this.onShipRemoved);
   },
   async mounted() {
+    // // В mounted(), после инициализации Pixi
+    // this.$refs.pixiContainer.addEventListener('click', (e) => {
+    //   // Координаты клика относительно контейнера
+    //   const rect = this.$refs.pixiContainer.getBoundingClientRect();
+    //   const x = e.clientX - rect.left;
+    //   const y = e.clientY - rect.top;
+      
+    //   console.log('Клик по контейнеру:', x, y);
+      
+    //   // Проверяем границы (хотя они и так в пределах контейнера)
+    //   if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+    //     this.onShipFly(x, y);
+    //   }
+    // });
+
     // Инициализация Pixi
     this.app = new PIXI.Application();
     await this.app.init({ antialias: true, resizeTo: this.$refs.pixiContainer });
@@ -247,6 +330,39 @@ export default {
     this.centerX = this.app.screen.width / 2;
     this.centerY = this.app.screen.height / 2;
 
+     // Загружаем текстуры [citation:1][citation:3]
+  try {
+    // Можно загружать по одной
+    const earthTexture = await PIXI.Assets.load('public/assets/earth.png');
+    const planetTexture = await PIXI.Assets.load('public/assets/planet.png');
+    
+    // Сохраняем для использования в addPlanet
+    this.textures = {
+        earth: earthTexture,
+        planet: planetTexture
+      };
+    } catch (error) {
+      console.error('Ошибка загрузки текстур:', error);
+    }
+
+    // Создаем прозрачный интерактивный фон на всю сцену
+    const background = new PIXI.Graphics();
+    background.rect(0, 0, this.app.screen.width, this.app.screen.height);
+    background.fill({ color: 0x000000, alpha: 0.01 }); // почти прозрачный
+    background.eventMode = 'static';
+    background.cursor = 'default';
+    background.on('click', (event) => {
+      console.log('🔥 Клик по фону!', event.global.x, event.global.y);
+      
+      // Проверяем границы
+      if (event.global.x >= 0 && event.global.x <= this.app.screen.width &&
+          event.global.y >= 0 && event.global.y <= this.app.screen.height) {
+        this.onShipFly(event.global.x, event.global.y);
+      }
+    });
+    this.app.stage.addChild(background);
+
+
     window.addEventListener('universe:init', this.onUniverseInit);
     window.addEventListener('universe:update', this.onUniverseUpdate);
     window.addEventListener('planet:added', this.onPlanetAdded);
@@ -255,6 +371,8 @@ export default {
     window.addEventListener('messages:update', this.onMessageUpdate);
     window.addEventListener('message:delivered', this.onMessageDelivered);
 
+    window.addEventListener('ship:removed', this.onShipRemoved);
+
     // Для отладки: добавим Землю в центр
     const earth = new PIXI.Graphics();
     earth.circle(0, 0, 30);
@@ -262,6 +380,11 @@ export default {
     earth.x = this.centerX;
     earth.y = this.centerY;
     this.app.stage.addChild(earth);
+
+    // this.app.stage.eventMode = 'static';
+    // this.app.stage.on('click', (event) => {
+    //   console.log('🔥 Событие click сработало!', event.global.x, event.global.y);
+    // });
   },
 };
 </script>
@@ -287,6 +410,7 @@ export default {
   right: 300px; /* ширина right-panel */
   background: black;
   z-index: 1;
+  /* border: 2px solid red;  временно */
 }
 
 .right-panel {
